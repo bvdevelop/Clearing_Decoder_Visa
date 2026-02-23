@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { ArrowLeft, Database, ChevronDown, ChevronRight, CreditCard, Layers, FileText } from 'lucide-react';
 import { parseVisaFile } from '../utils/decoder';
 
@@ -178,26 +178,111 @@ const DecodedView = ({ data, fileName, onBack }) => {
 
     const [expandedTx, setExpandedTx] = useState({});
     const [filter, setFilter] = useState('');
+    const [tcFilter, setTcFilter] = useState('All');
+    const [currentPage, setCurrentPage] = useState(1);
+    const [itemsPerPage, setItemsPerPage] = useState(100);
+
+    // Extract unique TCs for the dropdown
+    const availableTCs = useMemo(() => {
+        const tcs = new Set();
+        parsedData.records.forEach(rec => {
+            if (rec.tc) tcs.add(rec.tc);
+        });
+        return Array.from(tcs).sort();
+    }, [parsedData.records]);
 
     const toggleTx = (id) => {
         setExpandedTx(prev => ({ ...prev, [id]: !prev[id] }));
     };
 
     const filteredItems = useMemo(() => {
-        if (!filter.trim()) return groupedItems;
-        const lowerFilter = filter.toLowerCase();
-        return groupedItems.filter(group => {
-            if (group.type === 'transaction') {
-                // Search across all records in this transaction
-                return group.data.records.some(r => r.raw.toLowerCase().includes(lowerFilter));
-            } else {
-                return group.data.raw.toLowerCase().includes(lowerFilter);
-            }
-        });
-    }, [groupedItems, filter]);
+        let results = groupedItems;
+
+        // Apply TC Filter
+        if (tcFilter !== 'All') {
+            results = results.filter(group => {
+                if (group.type === 'transaction') {
+                    // Check if any record in the transaction has the selected TC
+                    // Alternatively, checking the first record's TC (transaction.records[0].tc)
+                    // usually denotes the transaction type accurately. But checking any allows 
+                    // finding transactions that contain a specific TC (like a TC 33 return).
+                    return group.data.records.some(r => r.tc === tcFilter);
+                } else {
+                    return group.data.tc === tcFilter;
+                }
+            });
+        }
+
+        // Apply Text Search Filter
+        if (filter.trim()) {
+            const lowerFilter = filter.toLowerCase();
+            results = results.filter(group => {
+                if (group.type === 'transaction') {
+                    return group.data.records.some(r => r.raw.toLowerCase().includes(lowerFilter));
+                } else {
+                    return group.data.raw.toLowerCase().includes(lowerFilter);
+                }
+            });
+        }
+
+        return results;
+    }, [groupedItems, filter, tcFilter]);
+
+    useEffect(() => {
+        setCurrentPage(1);
+    }, [filter, tcFilter, itemsPerPage]);
+
+    const totalItems = filteredItems.length;
+    const totalPages = Math.ceil(totalItems / itemsPerPage) || 1;
+    const validCurrentPage = Math.min(currentPage, totalPages);
+
+    const paginatedItems = useMemo(() => {
+        const startIndex = (validCurrentPage - 1) * itemsPerPage;
+        return filteredItems.slice(startIndex, startIndex + itemsPerPage);
+    }, [filteredItems, validCurrentPage, itemsPerPage]);
 
     const txCount = groupedItems.filter(g => g.type === 'transaction').length;
     const filteredTxCount = filteredItems.filter(g => g.type === 'transaction').length;
+
+    const PaginationControls = () => (
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', margin: '1rem 0', padding: '1rem', background: 'var(--bg-card)', borderRadius: 'var(--radius)', border: '1px solid var(--border-color)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                <span style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
+                    Showing {totalItems === 0 ? 0 : (validCurrentPage - 1) * itemsPerPage + 1} to {Math.min(validCurrentPage * itemsPerPage, totalItems)} of {totalItems} items
+                </span>
+                <select
+                    value={itemsPerPage}
+                    onChange={e => setItemsPerPage(Number(e.target.value))}
+                    style={{ padding: '0.4rem 0.5rem', borderRadius: '4px', background: 'rgba(0,0,0,0.2)', color: 'var(--text-primary)', border: '1px solid var(--border-color)', outline: 'none' }}
+                >
+                    <option value={50}>50 per page</option>
+                    <option value={100}>100 per page</option>
+                    <option value={500}>500 per page</option>
+                    <option value={1000}>1000 per page</option>
+                </select>
+            </div>
+
+            <div style={{ display: 'flex', gap: '0.5rem' }}>
+                <button
+                    disabled={validCurrentPage === 1}
+                    onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                    style={{ padding: '0.4rem 1rem', opacity: validCurrentPage === 1 ? 0.5 : 1, cursor: validCurrentPage === 1 ? 'not-allowed' : 'pointer', background: 'rgba(64, 64, 64, 0.4)', border: '1px solid var(--border-color)', borderRadius: '4px', color: 'var(--text-primary)' }}
+                >
+                    Previous
+                </button>
+                <div style={{ padding: '0.4rem 1rem', background: 'rgba(59, 130, 246, 0.2)', border: '1px solid rgba(59, 130, 246, 0.4)', borderRadius: '4px', fontWeight: 'bold' }}>
+                    Page {validCurrentPage} of {totalPages}
+                </div>
+                <button
+                    disabled={validCurrentPage === totalPages}
+                    onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                    style={{ padding: '0.4rem 1rem', opacity: validCurrentPage === totalPages ? 0.5 : 1, cursor: validCurrentPage === totalPages ? 'not-allowed' : 'pointer', background: 'rgba(64, 64, 64, 0.4)', border: '1px solid var(--border-color)', borderRadius: '4px', color: 'var(--text-primary)' }}
+                >
+                    Next
+                </button>
+            </div>
+        </div>
+    );
 
     return (
         <div className="container" style={{ padding: '0 1rem', maxWidth: '1400px' }}>
@@ -220,15 +305,32 @@ const DecodedView = ({ data, fileName, onBack }) => {
                 </div>
             </div>
 
-            <div style={{ marginBottom: '1rem', display: 'flex', gap: '1rem', alignItems: 'center' }}>
-                <div className="search-bar">
+            <div style={{ marginBottom: '1rem', display: 'flex', gap: '1rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                <div className="search-bar" style={{ flex: '1', minWidth: '300px' }}>
                     <input
                         type="text"
                         placeholder="Search parsed data..."
                         value={filter}
                         onChange={(e) => setFilter(e.target.value)}
+                        style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', border: '1px solid var(--border-color)', background: 'var(--bg-card)', color: 'var(--text-primary)' }}
                     />
                 </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', background: 'var(--bg-card)', padding: '0.4rem 1rem', borderRadius: '4px', border: '1px solid var(--border-color)' }}>
+                    <label htmlFor="tc-filter" style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', fontWeight: 500 }}>TC Code:</label>
+                    <select
+                        id="tc-filter"
+                        value={tcFilter}
+                        onChange={(e) => setTcFilter(e.target.value)}
+                        style={{ padding: '0.3rem', borderRadius: '4px', background: 'rgba(0,0,0,0.2)', color: 'var(--text-primary)', border: '1px solid var(--border-color)', outline: 'none' }}
+                    >
+                        <option value="All">All Transactions</option>
+                        {availableTCs.map(tc => (
+                            <option key={tc} value={tc}>TC {tc}</option>
+                        ))}
+                    </select>
+                </div>
+
                 <div style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
                     Showing {filteredTxCount} of {txCount} Transactions
                 </div>
@@ -251,11 +353,12 @@ const DecodedView = ({ data, fileName, onBack }) => {
             <h3 style={{ fontSize: '1.25rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                 <Layers size={20} /> File Structure
             </h3>
-            <span className="badge">{groupedItems.filter(g => g.type === 'transaction').length} Transactions</span>
+            <span className="badge" style={{ marginBottom: '1rem', display: 'inline-block' }}>{groupedItems.filter(g => g.type === 'transaction').length} Transactions</span>
 
+            {totalItems > 0 && <PaginationControls />}
 
-            <div style={{ paddingBottom: '4rem' }}>
-                {filteredItems.map((group, idx) => {
+            <div style={{ paddingBottom: '2rem' }}>
+                {paginatedItems.map((group, idx) => {
                     if (group.type === 'transaction') {
                         return (
                             <TransactionBlock
@@ -285,12 +388,14 @@ const DecodedView = ({ data, fileName, onBack }) => {
                     }
                 })}
 
-                {groupedItems.length === 0 && (
+                {totalItems === 0 && (
                     <div style={{ padding: '4rem', textAlign: 'center', color: 'var(--text-secondary)' }}>
-                        No records parsed. Is this a valid Visa CTF/ITF file?
+                        No records parsed or matching filter.
                     </div>
                 )}
             </div>
+
+            {totalItems > itemsPerPage && <PaginationControls />}
         </div >
     );
 };
