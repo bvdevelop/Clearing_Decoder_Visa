@@ -4,18 +4,20 @@ import FileUploader from './components/FileUploader';
 import DecodedView from './components/DecodedView';
 
 function App() {
-  const [fileData, setFileData] = useState(null);
-  const [fileName, setFileName] = useState('');
+  const [uploadedFiles, setUploadedFiles] = useState([]);
+  const [currentFileIndex, setCurrentFileIndex] = useState(0);
 
-  const handleFileProcess = (data, name) => {
-    setFileData(data);
-    setFileName(name);
+  const handleFilesProcess = (processedFiles) => {
+    setUploadedFiles(processedFiles);
+    setCurrentFileIndex(0);
   };
 
   const handleReset = () => {
-    setFileData(null);
-    setFileName('');
+    setUploadedFiles([]);
+    setCurrentFileIndex(0);
   };
+
+  const currentFile = uploadedFiles[currentFileIndex];
 
   return (
     <div className="container">
@@ -41,10 +43,17 @@ function App() {
       </header>
 
       <main>
-        {!fileData ? (
-          <FileUploader onFileProcessed={handleFileProcess} />
+        {uploadedFiles.length === 0 ? (
+          <FileUploader onFilesProcessed={handleFilesProcess} />
         ) : (
-          <DecodedView data={fileData} fileName={fileName} onBack={handleReset} />
+          <DecodedView
+            data={currentFile.data}
+            fileName={currentFile.name}
+            filesList={uploadedFiles.map(f => f.name)}
+            selectedIndex={currentFileIndex}
+            onFileChange={setCurrentFileIndex}
+            onBack={handleReset}
+          />
         )}
       </main>
     </div>

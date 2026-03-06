@@ -10,9 +10,13 @@ const TransactionBlock = ({ transaction, onToggle, isOpen }) => {
 
     // For TC 05, we have detailed parsing of TCR 0.
     const accountNum = tcr0?.parsedFields?.['Account Number'] || 'Unknown Acct';
-    const rawAmount = tcr0?.parsedFields?.['Source Amt'] || '0';
-    const currencyCode = tcr0?.parsedFields?.['Source Curr Code'] || '840';
+    const rawAmount = tcr0?.parsedFields?.['Source Amount'] || tcr0?.parsedFields?.['Destination Amount'] || '0';
+    const currencyCode = tcr0?.parsedFields?.['Source Currency Code'] || tcr0?.parsedFields?.['Destination Currency Code'] || '840';
     const merchant = tcr0?.parsedFields?.['Merchant Name'] || 'Unknown Merchant';
+
+    // Transaction Identifier typically from TCR 5
+    const tcr5 = transaction.records.find(r => r.tcr === '5');
+    const transactionIdentifier = tcr5?.parsedFields?.['Transaction Identifier'] || tcr0?.parsedFields?.['Transaction Identifier'];
 
     // For Returns, maybe show Reason Code from TCR 9?
     const tcr9 = transaction.records.find(r => r.tcr === '9');
@@ -57,8 +61,13 @@ const TransactionBlock = ({ transaction, onToggle, isOpen }) => {
                     <div className="badge" style={{ background: isReturn ? 'var(--warning)' : '#3b82f6', color: isReturn ? 'black' : 'white' }}>Tx #{transaction.id}</div>
                     <div style={{ display: 'flex', flexDirection: 'column' }}>
                         <span style={{ fontWeight: 600, fontSize: '0.9rem' }}>{merchant !== 'Unknown Merchant' ? merchant : txType}</span>
-                        <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', display: 'flex', gap: '0.5rem' }}>
+                        <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
                             <span>{accountNum !== 'Unknown Acct' ? accountNum : (returnReason ? `Return Reason: ${returnReason}` : '')}</span>
+                            {transactionIdentifier && (
+                                <span style={{ paddingLeft: '0.5rem', borderLeft: '1px solid var(--border-color)', color: '#93c5fd' }}>
+                                    TXID: {transactionIdentifier}
+                                </span>
+                            )}
                         </div>
                     </div>
                 </div>
@@ -131,7 +140,7 @@ const RecordRow = ({ rec }) => {
     );
 };
 
-const DecodedView = ({ data, fileName, onBack }) => {
+const DecodedView = ({ data, fileName, filesList, selectedIndex, onFileChange, onBack }) => {
     const parsedData = useMemo(() => parseVisaFile(data), [data]);
 
     // Grouping Logic for UI
@@ -300,8 +309,33 @@ const DecodedView = ({ data, fileName, onBack }) => {
                     <ArrowLeft size={20} />
                     Back to Upload
                 </button>
-                <div className="badge" style={{ backgroundColor: 'var(--bg-card-hover)', color: 'var(--text-primary)' }}>
-                    {fileName} ({data.byteLength} bytes)
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    {filesList && filesList.length > 1 ? (
+                        <select
+                            value={selectedIndex}
+                            onChange={(e) => onFileChange(Number(e.target.value))}
+                            className="badge"
+                            style={{
+                                backgroundColor: 'var(--bg-card-hover)',
+                                color: 'var(--text-primary)',
+                                outline: 'none',
+                                cursor: 'pointer',
+                                border: '1px solid var(--border-color)',
+                                padding: '0.2rem 0.8rem'
+                            }}
+                        >
+                            {filesList.map((name, idx) => (
+                                <option key={idx} value={idx}>{name}</option>
+                            ))}
+                        </select>
+                    ) : (
+                        <div className="badge" style={{ backgroundColor: 'var(--bg-card-hover)', color: 'var(--text-primary)' }}>
+                            {fileName}
+                        </div>
+                    )}
+                    <div className="badge" style={{ backgroundColor: 'transparent', border: '1px solid var(--border-color)', color: 'var(--text-secondary)' }}>
+                        {data.byteLength} bytes
+                    </div>
                 </div>
             </div>
 
@@ -337,16 +371,46 @@ const DecodedView = ({ data, fileName, onBack }) => {
             </div>
 
             {parsedData.errors && parsedData.errors.length > 0 && (
-                <div style={{ marginBottom: '1rem', background: 'rgba(239, 68, 68, 0.1)', border: '1px solid var(--error)', borderRadius: 'var(--radius)', padding: '1rem' }}>
-                    <h4 style={{ color: 'var(--error)', marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                        Validation Errors Found ({parsedData.errors.length})
+                <div style={{ marginBottom: '1rem', background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius)', padding: '1rem' }}>
+                    <h4 style={{ marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        Validation Results ({parsedData.errors.length})
                     </h4>
                     <div style={{ maxHeight: '200px', overflowY: 'auto' }}>
-                        {parsedData.errors.map((err, idx) => (
-                            <div key={idx} style={{ fontSize: '0.9rem', marginBottom: '0.25rem', fontFamily: 'var(--font-mono)' }}>
-                                <span style={{ fontWeight: 'bold' }}>Line {err.line}:</span> {err.message}
-                            </div>
-                        ))}
+                        {parsedData.errors.map((err, idx) => {
+                            const isCritical = err.message && err.message.includes('CRITICAL');
+                            const isSuccess = err.message && err.message.includes('SUCCESS');
+
+                            let bgColor = 'var(--bg-card-hover)';
+                            let borderColor = '1px solid var(--border-color)';
+                            let textColor = 'var(--text-primary)';
+                            let labelColor = 'var(--text-secondary)';
+
+                            if (isCritical) {
+                                bgColor = 'rgba(239, 68, 68, 0.2)';
+                                borderColor = '1px solid var(--error)';
+                                labelColor = '#fca5a5';
+                            } else if (isSuccess) {
+                                bgColor = 'rgba(34, 197, 94, 0.2)';
+                                borderColor = '1px solid #22c55e';
+                                textColor = '#86efac';
+                                labelColor = '#4ade80';
+                            }
+
+                            return (
+                                <div key={idx} style={{
+                                    fontSize: '0.9rem',
+                                    marginBottom: '0.5rem',
+                                    fontFamily: 'var(--font-mono)',
+                                    padding: (isCritical || isSuccess) ? '0.75rem' : '0.5rem',
+                                    background: bgColor,
+                                    border: borderColor,
+                                    borderRadius: '4px',
+                                    color: textColor
+                                }}>
+                                    <span style={{ fontWeight: 'bold', color: labelColor }}>Line {err.line}:</span> {err.message}
+                                </div>
+                            );
+                        })}
                     </div>
                 </div>
             )}

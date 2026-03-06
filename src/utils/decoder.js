@@ -759,6 +759,40 @@ export const parseVisaFile = (buffer) => {
         };
     });
 
+    // File level validation: Sum all Source Amount that are not TC91 or TC92 and compare to TC92
+    let calculatedTotalSourceAmount = 0;
+    let fileTrailerSourceAmount = null;
+    let tc92Line = 'File Level';
+
+    records.forEach(rec => {
+        if (rec.tc === '92') {
+            const amtStr = rec.parsedFields['Source Amount'];
+            if (amtStr !== undefined && amtStr.trim() !== '') {
+                fileTrailerSourceAmount = parseInt(amtStr, 10);
+                tc92Line = rec.id;
+            }
+        } else if (rec.tc !== '91') {
+            const amtStr = rec.parsedFields['Source Amount'];
+            if (amtStr !== undefined && amtStr.trim() !== '' && !isNaN(parseInt(amtStr, 10))) {
+                calculatedTotalSourceAmount += parseInt(amtStr, 10);
+            }
+        }
+    });
+
+    if (fileTrailerSourceAmount !== null && calculatedTotalSourceAmount !== fileTrailerSourceAmount) {
+        errors.unshift({
+            line: tc92Line,
+            field: 'Source Amount Total Verification',
+            message: `CRITICAL FILE ERROR: The sum of all Transaction Source Amounts (${calculatedTotalSourceAmount}) does NOT equal the File Trailer (TC 92) Source Amount (${fileTrailerSourceAmount}).`
+        });
+    } else if (fileTrailerSourceAmount !== null && calculatedTotalSourceAmount === fileTrailerSourceAmount) {
+        errors.unshift({
+            line: tc92Line,
+            field: 'Source Amount Total Verification',
+            message: `SUCCESS: The sum of all Transaction Source Amounts (${calculatedTotalSourceAmount}) perfectly matches the File Trailer (TC 92) Source Amount.`
+        });
+    }
+
     return {
         message: `Parsed ${records.length} records.`,
         records: records,
