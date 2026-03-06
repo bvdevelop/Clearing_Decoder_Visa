@@ -1,7 +1,7 @@
 import { useState, useRef } from 'react';
 import { UploadCloud, FileType } from 'lucide-react';
 
-const FileUploader = ({ onFileProcessed }) => {
+const FileUploader = ({ onFilesProcessed }) => {
     const [isDragging, setIsDragging] = useState(false);
     const fileInputRef = useRef(null);
 
@@ -20,25 +20,32 @@ const FileUploader = ({ onFileProcessed }) => {
         setIsDragging(false);
         const files = e.dataTransfer.files;
         if (files.length > 0) {
-            processFile(files[0]);
+            processFiles(files);
         }
     };
 
     const handleFileSelect = (e) => {
         const files = e.target.files;
         if (files.length > 0) {
-            processFile(files[0]);
+            processFiles(files);
         }
     };
 
-    const processFile = (file) => {
-        const reader = new FileReader();
-        reader.onload = (e) => {
-            const arrayBuffer = e.target.result;
-            // Pass raw buffer to parent, who will call the decoder
-            onFileProcessed(arrayBuffer, file.name);
-        };
-        reader.readAsArrayBuffer(file);
+    const processFiles = async (fileList) => {
+        const filesArray = Array.from(fileList);
+        const processedFiles = await Promise.all(
+            filesArray.map(file => new Promise((resolve) => {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    resolve({
+                        name: file.name,
+                        data: e.target.result
+                    });
+                };
+                reader.readAsArrayBuffer(file);
+            }))
+        );
+        onFilesProcessed(processedFiles);
     };
 
     return (
@@ -66,6 +73,7 @@ const FileUploader = ({ onFileProcessed }) => {
                     onChange={handleFileSelect}
                     style={{ display: 'none' }}
                     accept=".ctf,.itf,.dat,.bin"
+                    multiple
                 />
 
                 <div style={{
